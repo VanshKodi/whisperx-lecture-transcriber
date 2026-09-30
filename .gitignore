@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pt
+*.bin
+
+# ignore all files inside any folder, keep placeholders
+*/**
+!*/.gitkeep
+!**/.gitkeep

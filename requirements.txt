@@ -1,0 +1,6 @@
+# college-recordings — local GPU transcription (RTX 4050, py3.11)
+# Install GPU torch FIRST (cu128 index), then the rest:
+#   .\.venv\Scripts\python.exe -m pip install "torch~=2.8.0" "torchaudio~=2.8.0" "torchvision~=0.23.0" --index-url https://download.pytorch.org/whl/cu128
+#   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+whisperx
+hf_xet
