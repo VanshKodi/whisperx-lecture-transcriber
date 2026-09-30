@@ -104,6 +104,12 @@ if (-not (Test-Path -LiteralPath $AudioPath)) {
   exit 1
 }
 $Base = [System.IO.Path]::GetFileNameWithoutExtension($AudioPath)
+# date stamp from the audio file's modified date, falls back to today
+$FileDate = $null
+try {
+  $FileDate = (Get-Item -LiteralPath $AudioPath).LastWriteTime
+} catch { }
+if (-not $FileDate) { $FileDate = Get-Date }
 
 # --- Step 2/6: language ---
 if (-not $PSBoundParameters.ContainsKey("Lang")) {
@@ -188,7 +194,7 @@ $Suffix = ""
 if ($Lang -ne "en") { $Suffix += "-$Lang" }
 if ($NoAlign) { $Suffix += "-noalign" }
 if ($Compress) { $Suffix += "-compressed" }
-$Stamp = Get-Date -Format "dd_MMM"
+$Stamp = $FileDate.ToString("dd_MMM")
 $OutDir = Join-Path (Join-Path $Root "transcripts") ($Base + $Suffix + "-" + $Stamp)
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 
@@ -196,6 +202,7 @@ if ($asked) {
   Write-Host ""
   Write-Host "Summary:"
   Write-Host "  Audio:  $AudioPath"
+  Write-Host "  Date:   $Stamp (from file modified $($FileDate.ToString('yyyy-MM-dd')))"
   Write-Host "  Lang:   $Lang"
   Write-Host "  Model:  $Model"
   Write-Host "  Batch:  $BatchSize"
@@ -207,7 +214,7 @@ if ($asked) {
   }
   Write-Host "  Compress: $compressInfo"
   Write-Host "  Out:    $OutDir"
-  Write-Host "  After:  file moves pending\ -> done\"
+  Write-Host "  After:  file moves pending\ -> done\ (renamed with file date)"
   $go = Read-Host "Start transcription? [Y/n]"
   if ($go -match '^(n|no)$') {
     Write-Host "Cancelled."
