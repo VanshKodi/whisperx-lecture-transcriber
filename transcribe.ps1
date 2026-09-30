@@ -11,6 +11,7 @@
   .\transcribe.ps1 -Audio FM.wav -Lang hi
   .\transcribe.ps1 -Audio FM.wav -Lang en -NoAlign
   .\transcribe.ps1 -Audio DS.wav -Compress -Codec opus -CompressKbps 24
+  .\transcribe.ps1 -Audio DS.wav -DetailTranscribe
 #>
 [CmdletBinding()]
 param(
@@ -35,7 +36,9 @@ param(
   [string]$Codec = "opus",
 
   [ValidateRange(8, 320)]
-  [int]$CompressKbps = 24
+  [int]$CompressKbps = 24,
+
+  [switch]$DetailTranscribe
 )
 
 Set-StrictMode -Version Latest
@@ -70,7 +73,7 @@ if (-not (Test-Path -LiteralPath $Whisperx)) {
 
 $asked = $false
 
-# --- Step 1/6: audio file (from pending\) ---
+# --- Step 1/7: audio file (from pending\) ---
 if ([string]::IsNullOrWhiteSpace($Audio)) {
   $asked = $true
   $cands = @(Get-ChildItem -LiteralPath $PendingDir -File |
@@ -80,7 +83,7 @@ if ([string]::IsNullOrWhiteSpace($Audio)) {
     Write-Error "No audio files in pending\ (drop files into $PendingDir)"
     exit 1
   }
-  Write-Host "Step 1/6 - Pick audio (from pending\):"
+  Write-Host "Step 1/7 - Pick audio (from pending\):"
   for ($i = 0; $i -lt $cands.Count; $i++) {
     $mb = [math]::Round($cands[$i].Length / 1MB)
     Write-Host ("  [{0}] {1} ({2} MB)" -f ($i + 1), $cands[$i].Name, $mb)
@@ -111,12 +114,12 @@ try {
 } catch { }
 if (-not $FileDate) { $FileDate = Get-Date }
 
-# --- Step 2/6: language ---
+# --- Step 2/7: language ---
 if (-not $PSBoundParameters.ContainsKey("Lang")) {
   $asked = $true
   $validLangs = @("en", "hi")
   while ($true) {
-    $l = Read-Host "Step 2/6 - Language [en/hi] (default en)"
+    $l = Read-Host "Step 2/7 - Language [en/hi] (default en)"
     if ([string]::IsNullOrWhiteSpace($l)) { $l = "en" }
     $l = $l.Trim().ToLower()
     if ($validLangs -contains $l) { $Lang = $l; break }
@@ -124,12 +127,12 @@ if (-not $PSBoundParameters.ContainsKey("Lang")) {
   }
 }
 
-# --- Step 3/6: model ---
+# --- Step 3/7: model ---
 if (-not $PSBoundParameters.ContainsKey("Model")) {
   $asked = $true
   $validModels = @("tiny", "base", "small", "medium", "large-v2", "large-v3")
   while ($true) {
-    $m = Read-Host "Step 3/6 - Model [tiny/base/small/medium/large-v2/large-v3] (default medium)"
+    $m = Read-Host "Step 3/7 - Model [tiny/base/small/medium/large-v2/large-v3] (default medium)"
     if ([string]::IsNullOrWhiteSpace($m)) { $m = "medium" }
     $m = $m.Trim().ToLower()
     if ($validModels -contains $m) { $Model = $m; break }
@@ -137,11 +140,11 @@ if (-not $PSBoundParameters.ContainsKey("Model")) {
   }
 }
 
-# --- Step 4/6: batch size ---
+# --- Step 4/7: batch size ---
 if (-not $PSBoundParameters.ContainsKey("BatchSize")) {
   $asked = $true
   while ($true) {
-    $b = Read-Host "Step 4/6 - Batch size (default 4, use 2 if GPU runs out of memory)"
+    $b = Read-Host "Step 4/7 - Batch size (default 4, use 2 if GPU runs out of memory)"
     if ([string]::IsNullOrWhiteSpace($b)) { $b = "4" }
     $n = 0
     if ([int]::TryParse($b.Trim(), [ref]$n) -and $n -ge 1 -and $n -le 32) {
@@ -152,24 +155,24 @@ if (-not $PSBoundParameters.ContainsKey("BatchSize")) {
   }
 }
 
-# --- Step 5/6: alignment ---
+# --- Step 5/7: alignment ---
 if (-not $PSBoundParameters.ContainsKey("NoAlign")) {
   $asked = $true
-  $a = Read-Host "Step 5/6 - Skip word alignment? (faster, sentence timings only) [Y/n]"
+  $a = Read-Host "Step 5/7 - Skip word alignment? (faster, sentence timings only) [Y/n]"
   if ($a -notmatch '^(n|no)$') { $NoAlign = $true }
 }
 
-# --- Step 6/6: compress ---
+# --- Step 6/7: compress ---
 if (-not $PSBoundParameters.ContainsKey("Compress")) {
   $asked = $true
-  $c = Read-Host "Step 6/6 - Compress audio with ffmpeg first? (smaller temp copy for whisperx) [y/N]"
+  $c = Read-Host "Step 6/7 - Compress audio with ffmpeg first? (smaller temp copy for whisperx) [y/N]"
   if ($c -match '^(y|yes)$') { $Compress = $true }
 }
 if ($Compress -and -not $PSBoundParameters.ContainsKey("Codec")) {
   $asked = $true
   $validCodecs = @("opus", "mp3", "aac", "flac")
   while ($true) {
-    $cc = Read-Host "Step 6/6 - Codec [opus/mp3/aac/flac] (default opus)"
+    $cc = Read-Host "Step 6/7 - Codec [opus/mp3/aac/flac] (default opus)"
     if ([string]::IsNullOrWhiteSpace($cc)) { $cc = "opus" }
     $cc = $cc.Trim().ToLower()
     if ($validCodecs -contains $cc) { $Codec = $cc; break }
@@ -179,7 +182,7 @@ if ($Compress -and -not $PSBoundParameters.ContainsKey("Codec")) {
 if ($Compress -and $Codec -ne "flac" -and -not $PSBoundParameters.ContainsKey("CompressKbps")) {
   $asked = $true
   while ($true) {
-    $k = Read-Host "Step 6/6 - Bitrate kbps, higher = bigger/better (8-320, default 24)"
+    $k = Read-Host "Step 6/7 - Bitrate kbps, higher = bigger/better (8-320, default 24)"
     if ([string]::IsNullOrWhiteSpace($k)) { $k = "24" }
     $n = 0
     if ([int]::TryParse($k.Trim(), [ref]$n) -and $n -ge 8 -and $n -le 320) {
@@ -190,13 +193,25 @@ if ($Compress -and $Codec -ne "flac" -and -not $PSBoundParameters.ContainsKey("C
   }
 }
 
+# --- Step 7/7: detail output ---
+if (-not $PSBoundParameters.ContainsKey("DetailTranscribe")) {
+  $asked = $true
+  $d = Read-Host "Step 7/7 - Detail transcription? (SRT/VTT/TSV/JSON in folder, default is TXT only) [y/N]"
+  if ($d -match '^(y|yes)$') { $DetailTranscribe = $true }
+}
+
 $Suffix = ""
 if ($Lang -ne "en") { $Suffix += "-$Lang" }
 if ($NoAlign) { $Suffix += "-noalign" }
 if ($Compress) { $Suffix += "-compressed" }
 $Stamp = $FileDate.ToString("dd_MMM")
-$OutDir = Join-Path (Join-Path $Root "transcripts") ($Base + $Suffix + "-" + $Stamp)
-New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+$TranscriptsDir = Join-Path $Root "transcripts"
+New-Item -ItemType Directory -Path $TranscriptsDir -Force | Out-Null
+$OutDir = $TranscriptsDir
+if ($DetailTranscribe) {
+  $OutDir = Join-Path $TranscriptsDir ($Base + $Suffix + "-" + $Stamp)
+  New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+}
 
 if ($asked) {
   Write-Host ""
@@ -213,6 +228,7 @@ if ($asked) {
     if ($Codec -ne "flac") { $compressInfo += " $CompressKbps kbps" }
   }
   Write-Host "  Compress: $compressInfo"
+  Write-Host "  Output: $(if ($DetailTranscribe) { 'detail (srt/vtt/txt/tsv/json in folder)' } else { 'txt only' })"
   Write-Host "  Out:    $OutDir"
   Write-Host "  After:  file moves pending\ -> done\ (renamed with file date)"
   $go = Read-Host "Start transcription? [Y/n]"
@@ -263,6 +279,7 @@ $wxArgs = @(
   "--compute_type", $ComputeType,
   "--batch_size", "$BatchSize",
   "--output_dir", $OutDir,
+  "--output_format", $(if ($DetailTranscribe) { "all" } else { "txt" }),
   "--verbose", "False",
   "--print_progress", "True",
   "--log-level", "warning"
@@ -287,13 +304,29 @@ if ($code -ne 0) {
   exit $code
 }
 
-# --- date-stamp transcript filenames ---
-Get-ChildItem -LiteralPath $OutDir -File | ForEach-Object {
-  $newName = "{0}{1}-{2}{3}" -f $Base, $Suffix, $Stamp, $_.Extension
-  if ($_.Name -ne $newName) { Rename-Item -LiteralPath $_.FullName -NewName $newName }
+# --- date-stamp transcript output(s) ---
+if ($DetailTranscribe) {
+  Get-ChildItem -LiteralPath $OutDir -File | ForEach-Object {
+    $newName = "{0}{1}-{2}{3}" -f $Base, $Suffix, $Stamp, $_.Extension
+    if ($_.Name -ne $newName) { Rename-Item -LiteralPath $_.FullName -NewName $newName }
+  }
+  Write-Host "DONE. Outputs:"
+  Get-ChildItem -LiteralPath $OutDir | Format-Table Name, Length
+} else {
+  $produced = "{0}.txt" -f [System.IO.Path]::GetFileNameWithoutExtension($TranscribePath)
+  $producedPath = Join-Path $OutDir $produced
+  if (-not (Test-Path -LiteralPath $producedPath)) {
+    Write-Error ("whisperx finished but expected output missing: {0}" -f $producedPath)
+    exit 1
+  }
+  $finalName = "{0}{1}-{2}.txt" -f $Base, $Suffix, $Stamp
+  $finalPath = Join-Path $OutDir $finalName
+  if ($producedPath -ne $finalPath) {
+    Move-Item -LiteralPath $producedPath -Destination $finalPath -Force -ErrorAction Stop
+  }
+  Write-Host "DONE. Output:"
+  Get-Item -LiteralPath $finalPath | Format-Table Name, Length
 }
-Write-Host "DONE. Outputs:"
-Get-ChildItem -LiteralPath $OutDir | Format-Table Name, Length
 
 # --- pending\ -> done\ (only on success, date-stamped) ---
 try {

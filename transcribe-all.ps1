@@ -9,6 +9,7 @@
   .\transcribe-all.ps1 -Lang en
   .\transcribe-all.ps1 -Lang hi -Model medium -BatchSize 2
   .\transcribe-all.ps1 -Lang en -Compress -Codec opus -CompressKbps 24
+  .\transcribe-all.ps1 -Lang en -DetailTranscribe
 #>
 [CmdletBinding()]
 param(
@@ -27,7 +28,9 @@ param(
   [string]$Codec = "opus",
 
   [ValidateRange(8, 320)]
-  [int]$CompressKbps = 24
+  [int]$CompressKbps = 24,
+
+  [switch]$DetailTranscribe
 )
 
 Set-StrictMode -Version Latest
@@ -45,7 +48,7 @@ $asked = $false
 if (-not $PSBoundParameters.ContainsKey("Lang")) {
   $asked = $true
   while ($true) {
-    $l = Read-Host "Step 1/6 - Language for ALL files [en/hi] (default en)"
+    $l = Read-Host "Step 1/7 - Language for ALL files [en/hi] (default en)"
     if ([string]::IsNullOrWhiteSpace($l)) { $l = "en" }
     $l = $l.Trim().ToLower()
     if ($l -eq "en" -or $l -eq "hi") { $Lang = $l; break }
@@ -57,7 +60,7 @@ if (-not $PSBoundParameters.ContainsKey("Model")) {
   $asked = $true
   $validModels = @("tiny", "base", "small", "medium", "large-v2", "large-v3")
   while ($true) {
-    $m = Read-Host "Step 2/6 - Model for ALL files [tiny/base/small/medium/large-v2/large-v3] (default medium)"
+    $m = Read-Host "Step 2/7 - Model for ALL files [tiny/base/small/medium/large-v2/large-v3] (default medium)"
     if ([string]::IsNullOrWhiteSpace($m)) { $m = "medium" }
     $m = $m.Trim().ToLower()
     if ($validModels -contains $m) { $Model = $m; break }
@@ -68,7 +71,7 @@ if (-not $PSBoundParameters.ContainsKey("Model")) {
 if (-not $PSBoundParameters.ContainsKey("BatchSize")) {
   $asked = $true
   while ($true) {
-    $b = Read-Host "Step 3/6 - Batch size for ALL files (default 4, use 2 if GPU runs out of memory)"
+    $b = Read-Host "Step 3/7 - Batch size for ALL files (default 4, use 2 if GPU runs out of memory)"
     if ([string]::IsNullOrWhiteSpace($b)) { $b = "4" }
     $n = 0
     if ([int]::TryParse($b.Trim(), [ref]$n) -and $n -ge 1 -and $n -le 32) {
@@ -81,13 +84,13 @@ if (-not $PSBoundParameters.ContainsKey("BatchSize")) {
 
 if (-not $PSBoundParameters.ContainsKey("NoAlign")) {
   $asked = $true
-  $a = Read-Host "Step 4/6 - Skip word alignment for all? [Y/n]"
+  $a = Read-Host "Step 4/7 - Skip word alignment for all? [Y/n]"
   if ($a -notmatch '^(n|no)$') { $NoAlign = $true }
 }
 
 if (-not $PSBoundParameters.ContainsKey("Compress")) {
   $asked = $true
-  $c = Read-Host "Step 5/6 - Compress audio with ffmpeg first for ALL files? [y/N]"
+  $c = Read-Host "Step 5/7 - Compress audio with ffmpeg first for ALL files? [y/N]"
   if ($c -match '^(y|yes)$') { $Compress = $true }
 }
 
@@ -95,7 +98,7 @@ if ($Compress -and -not $PSBoundParameters.ContainsKey("Codec")) {
   $asked = $true
   $validCodecs = @("opus", "mp3", "aac", "flac")
   while ($true) {
-    $cc = Read-Host "Step 6/6 - Codec for ALL files [opus/mp3/aac/flac] (default opus)"
+    $cc = Read-Host "Step 6/7 - Codec for ALL files [opus/mp3/aac/flac] (default opus)"
     if ([string]::IsNullOrWhiteSpace($cc)) { $cc = "opus" }
     $cc = $cc.Trim().ToLower()
     if ($validCodecs -contains $cc) { $Codec = $cc; break }
@@ -106,7 +109,7 @@ if ($Compress -and -not $PSBoundParameters.ContainsKey("Codec")) {
 if ($Compress -and $Codec -ne "flac" -and -not $PSBoundParameters.ContainsKey("CompressKbps")) {
   $asked = $true
   while ($true) {
-    $k = Read-Host "Step 6/6 - Bitrate kbps for ALL files (8-320, default 24)"
+    $k = Read-Host "Step 6/7 - Bitrate kbps for ALL files (8-320, default 24)"
     if ([string]::IsNullOrWhiteSpace($k)) { $k = "24" }
     $n = 0
     if ([int]::TryParse($k.Trim(), [ref]$n) -and $n -ge 8 -and $n -le 320) {
@@ -115,6 +118,12 @@ if ($Compress -and $Codec -ne "flac" -and -not $PSBoundParameters.ContainsKey("C
     }
     Write-Host "Please type a number 8-320."
   }
+}
+
+if (-not $PSBoundParameters.ContainsKey("DetailTranscribe")) {
+  $asked = $true
+  $d = Read-Host "Step 7/7 - Detail transcription for ALL files? (SRT/etc in folder, default TXT only) [y/N]"
+  if ($d -match '^(y|yes)$') { $DetailTranscribe = $true }
 }
 
 $files = @(Get-ChildItem -LiteralPath $PendingDir -File |
@@ -127,7 +136,7 @@ if ($files.Count -eq 0) {
 }
 
 Write-Host ""
-Write-Host "Files ($($files.Count)): Lang=$Lang Model=$Model Batch=$BatchSize Align=$(if ($NoAlign) { 'skipped' } else { 'word-level' }) Compress=$(if ($Compress) { "$Codec $CompressKbps kbps" } else { 'off' })"
+Write-Host "Files ($($files.Count)): Lang=$Lang Model=$Model Batch=$BatchSize Align=$(if ($NoAlign) { 'skipped' } else { 'word-level' }) Compress=$(if ($Compress) { "$Codec $CompressKbps kbps" } else { 'off' }) Detail=$(if ($DetailTranscribe) { 'all formats' } else { 'txt-only' })"
 foreach ($f in $files) {
   $mb = [math]::Round($f.Length / 1MB)
   Write-Host ("  - {0} ({1} MB)" -f $f.Name, $mb)
@@ -145,14 +154,15 @@ $fail = 0
 foreach ($f in $files) {
   Write-Host "===== $($f.Name) ====="
   $invokeArgs = @{
-    Audio        = $f.FullName
-    Lang         = $Lang
-    Model        = $Model
-    BatchSize    = $BatchSize
-    NoAlign      = [bool]$NoAlign
-    Compress     = [bool]$Compress
-    Codec        = $Codec
-    CompressKbps = $CompressKbps
+    Audio            = $f.FullName
+    Lang             = $Lang
+    Model            = $Model
+    BatchSize        = $BatchSize
+    NoAlign          = [bool]$NoAlign
+    Compress         = [bool]$Compress
+    Codec            = $Codec
+    CompressKbps     = $CompressKbps
+    DetailTranscribe = [bool]$DetailTranscribe
   }
   & $Single @invokeArgs
   if ($LASTEXITCODE -eq 0) { $ok++ } else { $fail++ }
