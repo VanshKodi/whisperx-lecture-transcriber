@@ -27,6 +27,28 @@ $LogFile = Join-Path $LogDir ("setup-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHm
 try { Start-Transcript -Path $LogFile -Append -ErrorAction Stop | Out-Null } catch { }
 
 try {
+  # --- ffmpeg preflight (whisperx needs ffmpeg.exe on PATH, not bundled) ---
+  $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
+  if ($ffmpeg) {
+    Write-Host ("ffmpeg found: {0}" -f $ffmpeg.Source)
+    & ffmpeg -version | Select-Object -First 1
+  } else {
+    Write-Host ""
+    Write-Host "ERROR: ffmpeg not found on PATH. WhisperX requires it (not bundled with pip)."
+    Write-Host ""
+    Write-Host "Install via winget (recommended):"
+    Write-Host "  winget install Gyan.FFmpeg"
+    Write-Host ""
+    Write-Host "Or manual install:"
+    Write-Host "  1. Download from https://www.gyan.dev/ffmpeg/builds/ (ffmpeg-release-full.7z)"
+    Write-Host "  2. Extract, add the bin\ folder to PATH:"
+    Write-Host '     [Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\ffmpeg\bin", "User")'
+    Write-Host "  3. Close + reopen PowerShell, verify with: where.exe ffmpeg"
+    Write-Host "  4. Re-run: .\setup.ps1"
+    Write-Host ""
+    throw "ffmpeg missing - install it, restart PowerShell, re-run setup."
+  }
+
   if ($Force -and (Test-Path -LiteralPath $VenvDir)) {
     Write-Host "Removing old .venv (--Force)..."
     Remove-Item -LiteralPath $VenvDir -Recurse -Force
@@ -54,6 +76,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "requirements install failed" }
 
   Write-Host "Verifying..."
+  & ffmpeg -version | Select-Object -First 1
   & $VenvPython -c "import torch; print(torch.__version__, torch.cuda.is_available())"
   & $VenvWhisperx --help | Select-Object -First 5
 
