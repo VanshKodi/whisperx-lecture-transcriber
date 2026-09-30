@@ -10,6 +10,7 @@
   .\transcribe.ps1 -Audio DS.wav -Lang en
   .\transcribe.ps1 -Audio FM.wav -Lang hi
   .\transcribe.ps1 -Audio FM.wav -Lang en -NoAlign
+  .\transcribe.ps1 -Audio DS.wav -Compress -Codec opus -CompressKbps 24
 #>
 [CmdletBinding()]
 param(
@@ -26,7 +27,15 @@ param(
 
   [string]$Device = "cuda",
 
-  [switch]$NoAlign
+  [switch]$NoAlign,
+
+  [switch]$Compress,
+
+  [ValidateSet("opus", "mp3", "aac", "flac")]
+  [string]$Codec = "opus",
+
+  [ValidateRange(8, 320)]
+  [int]$CompressKbps = 24
 )
 
 Set-StrictMode -Version Latest
@@ -61,17 +70,17 @@ if (-not (Test-Path -LiteralPath $Whisperx)) {
 
 $asked = $false
 
-# --- Step 1/5: audio file (from pending\) ---
+# --- Step 1/6: audio file (from pending\) ---
 if ([string]::IsNullOrWhiteSpace($Audio)) {
   $asked = $true
   $cands = @(Get-ChildItem -LiteralPath $PendingDir -File |
-    Where-Object { $_.Extension -match '^\.(wav|mp3|m4a|flac|ogg)$' } |
+    Where-Object { $_.Extension -match '^\.(wav|mp3|m4a|flac|ogg|opus)$' } |
     Sort-Object Name)
   if ($cands.Count -eq 0) {
     Write-Error "No audio files in pending\ (drop files into $PendingDir)"
     exit 1
   }
-  Write-Host "Step 1/5 - Pick audio (from pending\):"
+  Write-Host "Step 1/6 - Pick audio (from pending\):"
   for ($i = 0; $i -lt $cands.Count; $i++) {
     $mb = [math]::Round($cands[$i].Length / 1MB)
     Write-Host ("  [{0}] {1} ({2} MB)" -f ($i + 1), $cands[$i].Name, $mb)
@@ -96,12 +105,12 @@ if (-not (Test-Path -LiteralPath $AudioPath)) {
 }
 $Base = [System.IO.Path]::GetFileNameWithoutExtension($AudioPath)
 
-# --- Step 2/5: language ---
+# --- Step 2/6: language ---
 if (-not $PSBoundParameters.ContainsKey("Lang")) {
   $asked = $true
   $validLangs = @("en", "hi")
   while ($true) {
-    $l = Read-Host "Step 2/5 - Language [en/hi] (default en)"
+    $l = Read-Host "Step 2/6 - Language [en/hi] (default en)"
     if ([string]::IsNullOrWhiteSpace($l)) { $l = "en" }
     $l = $l.Trim().ToLower()
     if ($validLangs -contains $l) { $Lang = $l; break }
@@ -109,12 +118,12 @@ if (-not $PSBoundParameters.ContainsKey("Lang")) {
   }
 }
 
-# --- Step 3/5: model ---
+# --- Step 3/6: model ---
 if (-not $PSBoundParameters.ContainsKey("Model")) {
   $asked = $true
   $validModels = @("tiny", "base", "small", "medium", "large-v2", "large-v3")
   while ($true) {
-    $m = Read-Host "Step 3/5 - Model [tiny/base/small/medium/large-v2/large-v3] (default medium)"
+    $m = Read-Host "Step 3/6 - Model [tiny/base/small/medium/large-v2/large-v3] (default medium)"
     if ([string]::IsNullOrWhiteSpace($m)) { $m = "medium" }
     $m = $m.Trim().ToLower()
     if ($validModels -contains $m) { $Model = $m; break }
@@ -122,11 +131,11 @@ if (-not $PSBoundParameters.ContainsKey("Model")) {
   }
 }
 
-# --- Step 4/5: batch size ---
+# --- Step 4/6: batch size ---
 if (-not $PSBoundParameters.ContainsKey("BatchSize")) {
   $asked = $true
   while ($true) {
-    $b = Read-Host "Step 4/5 - Batch size (default 4, use 2 if GPU runs out of memory)"
+    $b = Read-Host "Step 4/6 - Batch size (default 4, use 2 if GPU runs out of memory)"
     if ([string]::IsNullOrWhiteSpace($b)) { $b = "4" }
     $n = 0
     if ([int]::TryParse($b.Trim(), [ref]$n) -and $n -ge 1 -and $n -le 32) {
@@ -137,16 +146,48 @@ if (-not $PSBoundParameters.ContainsKey("BatchSize")) {
   }
 }
 
-# --- Step 5/5: alignment ---
+# --- Step 5/6: alignment ---
 if (-not $PSBoundParameters.ContainsKey("NoAlign")) {
   $asked = $true
-  $a = Read-Host "Step 5/5 - Skip word alignment? (faster, sentence timings only) [Y/n]"
+  $a = Read-Host "Step 5/6 - Skip word alignment? (faster, sentence timings only) [Y/n]"
   if ($a -notmatch '^(n|no)$') { $NoAlign = $true }
+}
+
+# --- Step 6/6: compress ---
+if (-not $PSBoundParameters.ContainsKey("Compress")) {
+  $asked = $true
+  $c = Read-Host "Step 6/6 - Compress audio with ffmpeg first? (smaller temp copy for whisperx) [y/N]"
+  if ($c -match '^(y|yes)$') { $Compress = $true }
+}
+if ($Compress -and -not $PSBoundParameters.ContainsKey("Codec")) {
+  $asked = $true
+  $validCodecs = @("opus", "mp3", "aac", "flac")
+  while ($true) {
+    $cc = Read-Host "Step 6/6 - Codec [opus/mp3/aac/flac] (default opus)"
+    if ([string]::IsNullOrWhiteSpace($cc)) { $cc = "opus" }
+    $cc = $cc.Trim().ToLower()
+    if ($validCodecs -contains $cc) { $Codec = $cc; break }
+    Write-Host "Please pick one of: $($validCodecs -join '/')."
+  }
+}
+if ($Compress -and $Codec -ne "flac" -and -not $PSBoundParameters.ContainsKey("CompressKbps")) {
+  $asked = $true
+  while ($true) {
+    $k = Read-Host "Step 6/6 - Bitrate kbps, higher = bigger/better (8-320, default 24)"
+    if ([string]::IsNullOrWhiteSpace($k)) { $k = "24" }
+    $n = 0
+    if ([int]::TryParse($k.Trim(), [ref]$n) -and $n -ge 8 -and $n -le 320) {
+      $CompressKbps = $n
+      break
+    }
+    Write-Host "Please type a number 8-320."
+  }
 }
 
 $Suffix = ""
 if ($Lang -ne "en") { $Suffix += "-$Lang" }
 if ($NoAlign) { $Suffix += "-noalign" }
+if ($Compress) { $Suffix += "-compressed" }
 $Stamp = Get-Date -Format "dd_MMM"
 $OutDir = Join-Path (Join-Path $Root "transcripts") ($Base + $Suffix + "-" + $Stamp)
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
@@ -159,6 +200,12 @@ if ($asked) {
   Write-Host "  Model:  $Model"
   Write-Host "  Batch:  $BatchSize"
   Write-Host "  Align:  $(if ($NoAlign) { 'skipped' } else { 'word-level' })"
+  $compressInfo = "no"
+  if ($Compress) {
+    $compressInfo = $Codec
+    if ($Codec -ne "flac") { $compressInfo += " $CompressKbps kbps" }
+  }
+  Write-Host "  Compress: $compressInfo"
   Write-Host "  Out:    $OutDir"
   Write-Host "  After:  file moves pending\ -> done\"
   $go = Read-Host "Start transcription? [Y/n]"
@@ -169,8 +216,40 @@ if ($asked) {
   }
 }
 
+# --- optional ffmpeg compression (temp copy, original still moves to done\) ---
+$TranscribePath = $AudioPath
+$CompressedTmp = ""
+if ($Compress) {
+  $ff = Get-Command ffmpeg -ErrorAction SilentlyContinue
+  if (-not $ff) {
+    Write-Error "ffmpeg not found on PATH. Install it: winget install Gyan.FFmpeg (then restart PowerShell)"
+    exit 1
+  }
+  $ffExt = @{ opus = "opus"; mp3 = "mp3"; aac = "m4a"; flac = "flac" }[$Codec]
+  if ($Codec -eq "flac") {
+    $CompressedTmp = Join-Path ([System.IO.Path]::GetTempPath()) ("{0}-compressed.{1}" -f $Base, $ffExt)
+  } else {
+    $CompressedTmp = Join-Path ([System.IO.Path]::GetTempPath()) ("{0}-compressed-{1}kbps.{2}" -f $Base, $CompressKbps, $ffExt)
+  }
+  $ffArgs = @("-y", "-i", $AudioPath, "-ac", "1", "-ar", "16000")
+  switch ($Codec) {
+    "opus" { $ffArgs += @("-c:a", "libopus", "-b:a", ("{0}k" -f $CompressKbps)) }
+    "mp3"  { $ffArgs += @("-c:a", "libmp3lame", "-b:a", ("{0}k" -f $CompressKbps)) }
+    "aac"  { $ffArgs += @("-c:a", "aac", "-b:a", ("{0}k" -f $CompressKbps)) }
+    "flac" { $ffArgs += @("-c:a", "flac", "-compression_level", "5") }
+  }
+  $ffArgs += $CompressedTmp
+  Write-Host ("Compressing: {0} -> {1} ({2})" -f $AudioPath, $CompressedTmp, $Codec)
+  & ffmpeg @ffArgs
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $CompressedTmp)) {
+    Write-Error "ffmpeg compression failed (original untouched in pending\)"
+    exit 1
+  }
+  $TranscribePath = $CompressedTmp
+}
+
 $wxArgs = @(
-  $AudioPath,
+  $TranscribePath,
   "--model", $Model,
   "--language", $Lang,
   "--device", $Device,
@@ -218,5 +297,9 @@ try {
   }
 } catch {
   Write-Warning "Transcription succeeded but move to done\ failed: $($_.Exception.Message)"
+}
+if ($CompressedTmp -ne "" -and (Test-Path -LiteralPath $CompressedTmp)) {
+  Remove-Item -LiteralPath $CompressedTmp -Force
+  Write-Host "Removed temp compressed copy."
 }
 Stop-Log
