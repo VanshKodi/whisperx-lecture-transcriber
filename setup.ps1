@@ -83,6 +83,12 @@ try {
   Write-Host ""
   Write-Host "SETUP DONE. Run: .\transcribe.ps1"
   Write-Host "Log: $LogFile"
+  Read-Host "Press Enter to close" | Out-Null
+} catch {
+  Write-Host ""
+  Write-Host ("SETUP FAILED: {0}" -f $_.Exception.Message)
+  Read-Host "Press Enter to close" | Out-Null
+  exit 1
 } finally {
   try { Stop-Transcript | Out-Null } catch { }
 }
